@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>House Vote Calculator</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 980px; margin: 24px auto; padding: 0 12px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .muted { color:#555; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+    .box { padding: 12px; border: 1px solid #ccc; border-radius: 12px; }
+    .title { font-size: 16px; font-weight: 800; margin: 0 0 10px; }
+    .status { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .small { font-size: 12px; color:#666; }
+    .warn { color: #8a4b00; }
+    .err { color: #a40000; }
+
+    /* Compact form grid */
+    .formgrid { display: grid; grid-template-columns: 1fr 160px; column-gap: 10px; row-gap: 8px; align-items: center; }
+    .formgrid label { margin: 0; }
+    .formgrid input, .formgrid select { width: 160px; padding: 6px; }
+
+    .divider { height: 1px; background: #e6e6e6; margin: 12px 0; }
+
+    /* Results styling */
+    .resultHeader { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .badge { display:inline-flex; align-items:center; padding: 2px 10px; border-radius: 999px; font-weight: 900; font-size: 12px; border: 1px solid #999; }
+    .badge.pass { border-color: #2b7a2b; }
+    .badge.fail { border-color: #a40000; }
+    .k { font-weight: 800; }
+    .line { display:flex; justify-content:space-between; gap:10px; flex-wrap: wrap; padding: 6px 0; }
+    .line .left { font-weight: 800; }
+    .line .right { color:#333; }
+    .subline { color:#444; font-size: 13px; padding: 3px 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
+
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>House Vote Calculator</h1>
+  <div class="muted small">Auto-calculates as you type. Regular and Suspension shown together.</div>
+
+  <div class="box" style="margin-top:10px;">
+    <div class="status">
+      <span class="k">Data:</span>
+      <select id="dataMode">
+        <option value="manual">Manual</option>
+        <option value="clerk" selected>Clerk (local proxy)</option>
+      </select>
+
+      <button id="refreshBtn" onclick="refreshFromClerk()">Refresh</button>
+
+      <label class="small" style="display:flex; align-items:center; gap:6px;">
+        <input type="checkbox" id="autoRefresh" /> Auto-refresh
+      </label>
+
+      <select id="autoRefreshMinutes">
+        <option value="60">every 60 min</option>
+        <option value="240" selected>every 4 hours</option>
+        <option value="360">every 6 hours</option>
+      </select>
+
+      <span class="small">Last update: <span id="lastUpdate">—</span></span>
+      <span class="small" id="dataMsg"></span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: Inputs -->
+    <div class="box">
+      <div class="title">Inputs</div>
+
+      <div class="k small" style="margin-bottom:6px;">Membership</div>
+      <div class="formgrid">
+        <label>Total seats (normally 435):</label>
+        <input type="number" id="totalSeats" value="435" min="0">
+
+        <label>Vacancies:</label>
+        <input type="number" id="vacancies" value="0" min="0">
+
+        <label>D seats (filled):</label>
+        <input type="number" id="dSeats" value="0" min="0">
+
+        <label>R seats (filled):</label>
+        <input type="number" id="rSeats" value="0" min="0">
+
+        <label>D Absences (Not Voting):</label>
+        <input type="number" id="dAbsences" value="0" min="0">
+
+        <label>R Absences (Not Voting):</label>
+        <input type="number" id="rAbsences" value="0" min="0">
+
+        <label>D “Present” votes:</label>
+        <input type="number" id="dPresentVotes" value="0" min="0">
+
+        <label>R “Present” votes:</label>
+        <input type="number" id="rPresentVotes" value="0" min="0">
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="k small" style="margin-bottom:6px;">Party Defections</div>
+      <div class="formgrid">
+        <label>Majority defections (vote NO):</label>
+        <input type="number" id="majDefections" value="0" min="0">
+
+        <label>Minority crossovers (vote YES):</label>
+        <input type="number" id="minCrossovers" value="0" min="0">
+      </div>
+
+      <div class="small muted" style="margin-top:10px;">
+        Present & voting = YES + NO (excludes “Present” and absences).
+      </div>
+    </div>
+
+    <!-- RIGHT: Results -->
+    <div class="box">
+      <div class="resultHeader">
+        <div class="title" style="margin:0;">Results</div>
+      </div>
+
+      <div class="subline" id="membershipLine">—</div>
+      <div class="subline" id="pvLine">—</div>
+
+      <div class="divider"></div>
+
+      <!-- Regular -->
+      <div class="line">
+        <div class="left">Regular</div>
+        <div class="right">
+          <span id="regularBadge" class="badge">—</span>
+          <span class="mono" id="regularSummary">—</span>
+        </div>
+      </div>
+      <div class="subline mono" id="regularDetail">—</div>
+
+      <div class="divider"></div>
+
+      <!-- Suspension -->
+      <div class="line">
+        <div class="left">Suspension</div>
+        <div class="right">
+          <span id="suspBadge" class="badge">—</span>
+          <span class="mono" id="suspSummary">—</span>
+        </div>
+      </div>
+      <div class="subline mono" id="suspDetail">—</div>
+    </div>
+  </div>
+
+  <script>
+    function nn(x) { x = parseInt(x, 10); return (Number.isFinite(x) && x >= 0) ? x : 0; }
+
+    function majorityBySeats(dSeats, rSeats) {
+      if (dSeats > rSeats) return { majParty: "Democrats", minParty: "Republicans" };
+      if (rSeats > dSeats) return { majParty: "Republicans", minParty: "Democrats" };
+      return { majParty: "Tie", minParty: "Tie" };
+    }
+
+    function neededVotes(mode, presentVoting) {
+      if (mode === "suspension") return Math.ceil((2 * presentVoting) / 3);
+      return Math.floor(presentVoting / 2) + 1;
+    }
+
+    function setMsg(text, cls) {
+      const el = document.getElementById("dataMsg");
+      el.className = "small " + (cls || "");
+      el.textContent = text || "";
+    }
+
+    function formatEastern(ts) {
+      const d = new Date(ts);
+      return d.toLocaleString("en-US", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true
+      }) + " ET";
+    }
+
+    function setBadge(el, pass) {
+      el.className = "badge " + (pass ? "pass" : "fail");
+      el.textContent = pass ? "PASSES" : "FAILS";
+    }
+
+    function calculate() {
+      const totalSeats = nn(document.getElementById("totalSeats").value);
+      const vacancies  = nn(document.getElementById("vacancies").value);
+      const dSeats     = nn(document.getElementById("dSeats").value);
+      const rSeats     = nn(document.getElementById("rSeats").value);
+
+      const dAbs       = nn(document.getElementById("dAbsences").value);
+      const rAbs       = nn(document.getElementById("rAbsences").value);
+
+      const dPresV     = nn(document.getElementById("dPresentVotes").value);
+      const rPresV     = nn(document.getElementById("rPresentVotes").value);
+
+      const majDefIn   = nn(document.getElementById("majDefections").value);
+      const minXIn     = nn(document.getElementById("minCrossovers").value);
+
+      const filledSeats = Math.max(totalSeats - vacancies, 0);
+
+      // Present & voting (YES/NO) pool by party
+      const dPV = Math.max(dSeats - dAbs - dPresV, 0);
+      const rPV = Math.max(rSeats - rAbs - rPresV, 0);
+      const presentVoting = dPV + rPV;
+
+      const { majParty } = majorityBySeats(dSeats, rSeats);
+
+      let majPV = 0, minPV = 0;
+      if (majParty === "Democrats") { majPV = dPV; minPV = rPV; }
+      else if (majParty === "Republicans") { majPV = rPV; minPV = dPV; }
+      else { majPV = Math.max(dPV, rPV); minPV = Math.min(dPV, rPV); }
+
+      const majDefections = Math.min(majDefIn, majPV);
+      const minCrossovers = Math.min(minXIn, minPV);
+
+      // YES coalition (used against both thresholds)
+      const yesVotes = Math.max(majPV - majDefections, 0) + minCrossovers;
+
+      // Regular
+      const needReg = neededVotes("regular", presentVoting);
+      const passReg = yesVotes >= needReg;
+      const marginReg = yesVotes - needReg;
+      const maxMajNoReg = Math.max(majPV - needReg, 0);
+
+      // Suspension
+      const needSus = neededVotes("suspension", presentVoting);
+      const passSus = yesVotes >= needSus;
+      const marginSus = yesVotes - needSus;
+      const maxMajNoSus = Math.max(majPV - needSus, 0);
+
+      document.getElementById("membershipLine").textContent =
+        `Filled seats: ${filledSeats} | D: ${dSeats} | R: ${rSeats} | Vacancies: ${vacancies}`;
+
+      document.getElementById("pvLine").textContent =
+        `Present & voting (YES/NO): ${presentVoting} (D ${dPV} • R ${rPV}) | “Present”: D ${dPresV} • R ${rPresV}`;
+
+      // Badges + summaries
+      const regBadge = document.getElementById("regularBadge");
+      setBadge(regBadge, passReg);
+      document.getElementById("regularSummary").textContent =
+        `${passReg ? "cushion" : "short"} ${Math.abs(marginReg)}`;
+
+      document.getElementById("regularDetail").textContent =
+        `Needed: ${needReg} | YES assumed: ${yesVotes} | Max majority NOs (given PV): ${maxMajNoReg}`;
+
+      const susBadge = document.getElementById("suspBadge");
+      setBadge(susBadge, passSus);
+      document.getElementById("suspSummary").textContent =
+        `${passSus ? "cushion" : "short"} ${Math.abs(marginSus)}`;
+
+      document.getElementById("suspDetail").textContent =
+        `Needed: ${needSus} | YES assumed: ${yesVotes} | Max majority NOs (given PV): ${maxMajNoSus}`;
+    }
+
+    async function refreshFromClerk() {
+      const mode = document.getElementById("dataMode").value;
+      if (mode !== "clerk") { setMsg("", ""); return; }
+
+      setMsg("Refreshing…", "muted");
+      try {
+        const resp = await fetch("http://localhost:8787/api/house-roster", { cache: "no-store" });
+        if (!resp.ok) throw new Error("Proxy returned HTTP " + resp.status);
+
+        const data = await resp.json();
+        if (typeof data.totalSeats === "number") document.getElementById("totalSeats").value = data.totalSeats;
+        if (typeof data.vacancies  === "number") document.getElementById("vacancies").value  = data.vacancies;
+        if (typeof data.dSeats     === "number") document.getElementById("dSeats").value     = data.dSeats;
+        if (typeof data.rSeats     === "number") document.getElementById("rSeats").value     = data.rSeats;
+
+        const ts = data.updatedAt || new Date().toISOString();
+        document.getElementById("lastUpdate").textContent = formatEastern(ts);
+
+        setMsg("", "");
+        calculate();
+      } catch (e) {
+        setMsg("Refresh failed (is the proxy running?).", "err");
+      }
+    }
+
+    // Auto-refresh
+    let autoTimer = null;
+    function resetAutoRefresh() {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+      const enabled = document.getElementById("autoRefresh").checked;
+      if (!enabled) return;
+
+      const mins = nn(document.getElementById("autoRefreshMinutes").value) || 240;
+      autoTimer = setInterval(() => refreshFromClerk(), mins * 60 * 1000);
+    }
+
+    // Wire events (auto-calc)
+    [
+      "totalSeats","vacancies","dSeats","rSeats",
+      "dAbsences","rAbsences","dPresentVotes","rPresentVotes",
+      "majDefections","minCrossovers","dataMode"
+    ].forEach(id => document.getElementById(id).addEventListener("input", calculate));
+
+    document.getElementById("autoRefresh").addEventListener("change", () => {
+      resetAutoRefresh();
+      if (document.getElementById("autoRefresh").checked) refreshFromClerk();
+    });
+
+    document.getElementById("autoRefreshMinutes").addEventListener("change", resetAutoRefresh);
+
+    // Init
+    document.getElementById("lastUpdate").textContent = "—";
+    resetAutoRefresh();
+    if (document.getElementById("dataMode").value === "clerk") refreshFromClerk();
+    calculate();
+  </script>
+</body>
+</html>
