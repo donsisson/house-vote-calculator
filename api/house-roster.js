@@ -13,14 +13,22 @@ export default async function handler(req, res) {
 
     const xml = await r.text();
 
-    // Grab each <member>...</member> block and read party within that block only.
+    // Grab each <member>...</member> block
     const memberBlocks = xml.match(/<member\b[\s\S]*?<\/member>/gi) || [];
 
     let dSeats = 0, rSeats = 0, iSeats = 0, otherSeats = 0;
 
     for (const block of memberBlocks) {
-      const m = block.match(/<party>\s*([^<]+?)\s*<\/party>/i);
-      const party = (m?.[1] || "").trim().toUpperCase();
+      // Exclude non-voting members (Delegates + Resident Commissioner)
+      const dm = block.match(/<district>\s*([^<]+?)\s*<\/district>/i);
+      const district = (dm?.[1] || "").trim();
+
+      if (district === "Delegate" || district === "Resident Commissioner") {
+        continue;
+      }
+
+      const pm = block.match(/<party>\s*([^<]+?)\s*<\/party>/i);
+      const party = (pm?.[1] || "").trim().toUpperCase();
 
       if (party === "D") dSeats++;
       else if (party === "R") rSeats++;
@@ -52,6 +60,9 @@ export default async function handler(req, res) {
       vacancies: 0,
       dSeats: 0,
       rSeats: 0,
+      iSeats: 0,
+      otherSeats: 0,
+      filled: 0,
     });
   }
 }
