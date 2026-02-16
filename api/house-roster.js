@@ -1,53 +1,48 @@
 export default async function handler(req, res) {
   try {
     const url = "https://clerk.house.gov/xml/lists/MemberData.xml";
-
-    const r = await fetch(url, {
-      headers: {
-        "User-Agent": "house-vote-calculator",
-        "Accept": "application/xml,text/xml,*/*",
-      },
-      cache: "no-store",
-    });
+    const r = await fetch(url, { cache: "no-store" });
     if (!r.ok) throw new Error("Clerk HTTP " + r.status);
 
     const xml = await r.text();
 
-    // Non-voting Delegates / Resident Commissioner jurisdictions
-    const NON_VOTING = new Set(["DC", "PR", "VI", "GU", "AS", "MP"]);
+    // Grab each <member>...</member> block
+    const members = xml.match(/<member\b[^>]*>[\s\S]*?<\/member>/gi) || [];
 
-    // MemberData.xml is typically a set of <member> ... </member> records.
-    const memberBlocks = [...xml.matchAll(/<member\b[^>]*>[\s\S]*?<\/member>/gi)].map(m => m[0]);
+    // Territories / non-voting delegations to EXCLUDE from the 435
+    const EXCLUDE = new Set(["DC", "PR", "GU", "VI", "AS", "MP"]);
 
     let dSeats = 0;
     let rSeats = 0;
+    let iSeats = 0;
 
-    for (const block of memberBlocks) {
-      const state = (block.match(/<state>\s*([^<]+?)\s*<\/state>/i)?.[1] || "").trim().toUpperCase();
-      if (NON_VOTING.has(state)) continue;
+    for (const m of members) {
+      const state = (m.match(/<state>\s*([^<]+)\s*<\/state>/i)?.[1] || "").trim().toUpperCase();
+      if (!state || EXCLUDE.has(state)) continue;
 
-      const partyRaw = (block.match(/<party>\s*([^<]+?)\s*<\/party>/i)?.[1] || "").trim().toUpperCase();
+      const party = (m.match(/<party>\s*([^<]+)\s*<\/party>/i)?.[1] || "").trim().toUpperCase();
 
-      // Handle D/R, and also Democratic/Republican just in case
-      if (partyRaw === "D" || partyRaw.startsWith("DEM")) dSeats++;
-      else if (partyRaw === "R" || partyRaw.startsWith("REP")) rSeats++;
+      if (party === "D") dSeats++;
+      else if (party === "R") rSeats++;
+      else if (party === "I") iSeats++;
     }
 
     const totalSeats = 435;
-    const vacancies = Math.max(totalSeats - (dSeats + rSeats), 0);
+    const filled = dSeats + rSeats + iSeats;
+    const vacancies = Math.max(totalSeats - filled, 0);
 
     res.setHeader("Content-Type", "application/json");
-    res.setHeader("Cache-Control", "no-store");
     res.status(200).json({
       updatedAt: new Date().toISOString(),
       totalSeats,
       vacancies,
       dSeats,
       rSeats,
+      iSeats,
+      filled
     });
   } catch (e) {
     res.setHeader("Content-Type", "application/json");
-    res.setHeader("Cache-Control", "no-store");
     res.status(500).json({
       updatedAt: new Date().toISOString(),
       error: String(e?.message || e),
@@ -55,6 +50,8 @@ export default async function handler(req, res) {
       vacancies: 0,
       dSeats: 0,
       rSeats: 0,
+      iSeats: 0,
+      filled: 0
     });
   }
 }
