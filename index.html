@@ -266,7 +266,7 @@
 
       setMsg("Refreshing…", "muted");
       try {
-        const resp = await fetch("http://localhost:8787/api/house-roster", { cache: "no-store" });
+        const resp = await fetch("/api/house-roster", { cache: "no-store" });
         if (!resp.ok) throw new Error("Proxy returned HTTP " + resp.status);
 
         const data = await resp.json();
